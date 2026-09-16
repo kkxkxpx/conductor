@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 import th.co.chaiyo.customerportal.adaptor.Customer360Adapter;
 import th.co.chaiyo.customerportal.adaptor.Customer360ProfileDto;
+import th.co.chaiyo.customerportal.adaptor.Customer360ProfileUpdateDto;
 import th.co.chaiyo.customerportal.exception.Customer360UnavailableException;
 import th.co.chaiyo.customerportal.exception.CustomerNotFoundException;
 
@@ -24,6 +25,19 @@ public class Customer360AdapterImpl implements Customer360Adapter {
     public Mono<Customer360ProfileDto> fetchProfile(String customerId) {
         return customer360WebClient.get()
                 .uri("/customers/{id}/profile", customerId)
+                .retrieve()
+                .bodyToMono(Customer360ProfileDto.class)
+                .onErrorMap(WebClientResponseException.class, ex -> mapError(customerId, ex))
+                .onErrorMap(ex -> !(ex instanceof CustomerNotFoundException)
+                                && !(ex instanceof Customer360UnavailableException),
+                        ex -> new Customer360UnavailableException(customerId, ex));
+    }
+
+    @Override
+    public Mono<Customer360ProfileDto> updateProfile(String customerId, Customer360ProfileUpdateDto update) {
+        return customer360WebClient.patch()
+                .uri("/customers/{id}/profile", customerId)
+                .bodyValue(update)
                 .retrieve()
                 .bodyToMono(Customer360ProfileDto.class)
                 .onErrorMap(WebClientResponseException.class, ex -> mapError(customerId, ex))

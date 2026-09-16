@@ -2,12 +2,16 @@ package th.co.chaiyo.customerportal.controller;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import lombok.RequiredArgsConstructor;
 import reactor.core.publisher.Mono;
+import th.co.chaiyo.customerportal.model.request.ProfileUpdateRequest;
 import th.co.chaiyo.customerportal.model.response.ProfileResponse;
 import th.co.chaiyo.customerportal.service.CustomerProfileService;
 
@@ -21,6 +25,15 @@ public class CustomerProfileController {
     @GetMapping("/{id}/profile")
     public Mono<ResponseEntity<ProfileResponse>> getProfile(@PathVariable("id") String id) {
         return customerProfileService.getProfile(id)
+                .map(ResponseEntity::ok);
+    }
+
+    @PatchMapping("/{id}/profile")
+    public Mono<ResponseEntity<ProfileResponse>> updateProfile(
+            @PathVariable("id") String id,
+            @RequestHeader("If-Match") String ifMatch,
+            @RequestBody ProfileUpdateRequest request) {
+        return customerProfileService.updateProfile(id, ifMatch, request)
                 .map(ResponseEntity::ok);
     }
 }

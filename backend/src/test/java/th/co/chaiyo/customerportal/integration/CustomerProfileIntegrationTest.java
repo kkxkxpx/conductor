@@ -1,6 +1,8 @@
 package th.co.chaiyo.customerportal.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 import org.junit.jupiter.api.Test;
@@ -126,5 +128,106 @@ class CustomerProfileIntegrationTest {
                 .expectBody(ProfileResponse.class)
                 .returnResult()
                 .getResponseBody();
+    }
+
+    @Test
+    void patchProfileReturns200WithEveryFieldAtItsNewValueThroughTheFullStack() {
+        when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
+        Customer360ProfileDto updatedDto = new Customer360ProfileDto(
+                "0812345678", "999 Moo 9", "Soi 9", "Silom", "Bang Rak", "Bangkok", "10500");
+        when(customer360Adapter.updateProfile(eq("cust-1"), any())).thenReturn(Mono.just(updatedDto));
+        String currentVersion = readProfile("cust-1").version();
+
+        webTestClient.patch().uri("/v1/customers/cust-1/profile")
+                .header(HttpHeaders.IF_MATCH, currentVersion)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"addressLine1\":\"999 Moo 9\",\"addressLine2\":\"Soi 9\",\"subDistrict\":\"Silom\"}")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.phone").isEqualTo("0812345678")
+                .jsonPath("$.addressLine1").isEqualTo("999 Moo 9")
+                .jsonPath("$.addressLine2").isEqualTo("Soi 9")
+                .jsonPath("$.subDistrict").isEqualTo("Silom")
+                .jsonPath("$.district").isEqualTo("Bang Rak")
+                .jsonPath("$.province").isEqualTo("Bangkok")
+                .jsonPath("$.postalCode").isEqualTo("10500");
+    }
+
+    @Test
+    void patchProfileReturns409WhenTheIfMatchHeaderCarriesAStaleVersionThroughTheFullStack() {
+        when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
+
+        webTestClient.patch().uri("/v1/customers/cust-1/profile")
+                .header(HttpHeaders.IF_MATCH, "stale-version")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"phone\":\"0899999999\"}")
+                .exchange()
+                .expectStatus().isEqualTo(409)
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("CF001");
+    }
+
+    @Test
+    void secondPatchSucceedsWithTheVersionReturnedByAPriorPatchInTheSameVisit() {
+        Customer360ProfileDto afterContactSave = new Customer360ProfileDto(
+                "0899999999", "123 Moo 4", "Soi 5", "Bang Rak", "Bang Rak", "Bangkok", "10500");
+        // First two fetches (the GET, then the first PATCH's version check) see the
+        // original state; once the first PATCH "writes", Customer360 reflects it.
+        when(customer360Adapter.fetchProfile("cust-1"))
+                .thenReturn(Mono.just(sampleDto()), Mono.just(sampleDto()), Mono.just(afterContactSave));
+        when(customer360Adapter.updateProfile(eq("cust-1"), any())).thenReturn(Mono.just(afterContactSave));
+        String originalVersion = readProfile("cust-1").version();
+
+        String versionAfterContactSave = webTestClient.patch().uri("/v1/customers/cust-1/profile")
+                .header(HttpHeaders.IF_MATCH, originalVersion)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"phone\":\"0899999999\"}")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ProfileResponse.class)
+                .returnResult()
+                .getResponseBody()
+                .version();
+
+        Customer360ProfileDto afterAddressSave = new Customer360ProfileDto(
+                "0899999999", "999 Moo 9", "Soi 5", "Bang Rak", "Bang Rak", "Bangkok", "10500");
+        when(customer360Adapter.updateProfile(eq("cust-1"), any())).thenReturn(Mono.just(afterAddressSave));
+
+        webTestClient.patch().uri("/v1/customers/cust-1/profile")
+                .header(HttpHeaders.IF_MATCH, versionAfterContactSave)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"addressLine1\":\"999 Moo 9\"}")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.addressLine1").isEqualTo("999 Moo 9");
+    }
+
+    @Test
+    void secondPatchIsRejectedWhenItReusesTheVersionFromBeforeTheFirstPatchInTheSameVisit() {
+        Customer360ProfileDto afterContactSave = new Customer360ProfileDto(
+                "0899999999", "123 Moo 4", "Soi 5", "Bang Rak", "Bang Rak", "Bangkok", "10500");
+        // First two fetches (the GET, then the first PATCH's version check) see the
+        // original state; once the first PATCH "writes", Customer360 reflects it -
+        // so replaying the original version on the second PATCH is now stale.
+        when(customer360Adapter.fetchProfile("cust-1"))
+                .thenReturn(Mono.just(sampleDto()), Mono.just(sampleDto()), Mono.just(afterContactSave));
+        when(customer360Adapter.updateProfile(eq("cust-1"), any())).thenReturn(Mono.just(afterContactSave));
+        String originalVersion = readProfile("cust-1").version();
+
+        webTestClient.patch().uri("/v1/customers/cust-1/profile")
+                .header(HttpHeaders.IF_MATCH, originalVersion)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"phone\":\"0899999999\"}")
+                .exchange()
+                .expectStatus().isOk();
+
+        webTestClient.patch().uri("/v1/customers/cust-1/profile")
+                .header(HttpHeaders.IF_MATCH, originalVersion)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"addressLine1\":\"999 Moo 9\"}")
+                .exchange()
+                .expectStatus().isEqualTo(409);
     }
 }

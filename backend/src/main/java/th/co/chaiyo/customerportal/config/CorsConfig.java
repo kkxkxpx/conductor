@@ -20,7 +20,8 @@ public class CorsConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOriginPatterns(properties.getAllowedOriginPatterns());
         configuration.setAllowedMethods(java.util.List.of(
-                HttpMethod.GET.name(), HttpMethod.POST.name(), HttpMethod.PUT.name(), HttpMethod.OPTIONS.name()));
+                HttpMethod.GET.name(), HttpMethod.POST.name(), HttpMethod.PUT.name(),
+                HttpMethod.PATCH.name(), HttpMethod.OPTIONS.name()));
         configuration.setAllowedHeaders(java.util.List.of("*"));
         configuration.setAllowCredentials(false);
 

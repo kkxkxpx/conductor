@@ -11,6 +11,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import th.co.chaiyo.customerportal.adaptor.Customer360ProfileDto;
+import th.co.chaiyo.customerportal.adaptor.Customer360ProfileUpdateDto;
 import th.co.chaiyo.customerportal.exception.Customer360UnavailableException;
 import th.co.chaiyo.customerportal.exception.CustomerNotFoundException;
 
@@ -64,6 +65,40 @@ class Customer360AdapterImplTest {
 
         StepVerifier.create(adapter.fetchProfile("cust-1"))
                 .expectError(Customer360UnavailableException.class)
+                .verify();
+    }
+
+    @Test
+    void updateProfileSendsAPatchRequestAndReturnsTheUpdatedDto() {
+        String body = """
+                {"phone":"0899999999","addressLine1":"123 Moo 4","addressLine2":"Soi 5",
+                "subDistrict":"Bang Rak","district":"Bang Rak","province":"Bangkok","postalCode":"10500"}
+                """;
+        ClientResponse response = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(body)
+                .build();
+        Customer360AdapterImpl adapter = adapterRespondingWith(response);
+        Customer360ProfileUpdateDto update = new Customer360ProfileUpdateDto(
+                "0899999999", null, null, null, null, null, null);
+
+        Customer360ProfileDto dto = adapter.updateProfile("cust-1", update).block();
+
+        assertThat(dto.phone()).isEqualTo("0899999999");
+    }
+
+    @Test
+    void updateProfileMapsA404ResponseToCustomerNotFoundException() {
+        ClientResponse response = ClientResponse.create(HttpStatus.NOT_FOUND)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{}")
+                .build();
+        Customer360AdapterImpl adapter = adapterRespondingWith(response);
+        Customer360ProfileUpdateDto update = new Customer360ProfileUpdateDto(
+                "0899999999", null, null, null, null, null, null);
+
+        StepVerifier.create(adapter.updateProfile("missing", update))
+                .expectError(CustomerNotFoundException.class)
                 .verify();
     }
 }
