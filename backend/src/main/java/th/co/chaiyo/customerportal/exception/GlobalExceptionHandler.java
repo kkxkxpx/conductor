@@ -27,6 +27,12 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(ex.getCode(), ex.getMessage(), ex.getDescription())));
     }
 
+    @ExceptionHandler(ProfileVersionConflictException.class)
+    public Mono<ResponseEntity<ApiError>> handleVersionConflict(ProfileVersionConflictException ex) {
+        return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiError(ex.getCode(), ex.getMessage(), ex.getDescription())));
+    }
+
     @ExceptionHandler({WebExchangeBindException.class, ServerWebInputException.class})
     public Mono<ResponseEntity<ApiError>> handleBadRequest(Exception ex) {
         return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST)

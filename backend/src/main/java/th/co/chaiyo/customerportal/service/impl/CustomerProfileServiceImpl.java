@@ -11,6 +11,9 @@ import lombok.RequiredArgsConstructor;
 import reactor.core.publisher.Mono;
 import th.co.chaiyo.customerportal.adaptor.Customer360Adapter;
 import th.co.chaiyo.customerportal.adaptor.Customer360ProfileDto;
+import th.co.chaiyo.customerportal.adaptor.Customer360ProfileUpdateDto;
+import th.co.chaiyo.customerportal.exception.ProfileVersionConflictException;
+import th.co.chaiyo.customerportal.model.request.ProfileUpdateRequest;
 import th.co.chaiyo.customerportal.model.response.ProfileResponse;
 import th.co.chaiyo.customerportal.service.CustomerProfileService;
 
@@ -32,6 +35,29 @@ public class CustomerProfileServiceImpl implements CustomerProfileService {
     public Mono<ProfileResponse> getProfile(String customerId) {
         return customer360Adapter.fetchProfile(customerId)
                 .map(this::toProfileResponse);
+    }
+
+    @Override
+    public Mono<ProfileResponse> updateProfile(String customerId, String ifMatch, ProfileUpdateRequest request) {
+        return customer360Adapter.fetchProfile(customerId)
+                .flatMap(current -> {
+                    if (!computeVersion(current).equals(ifMatch)) {
+                        return Mono.error(new ProfileVersionConflictException(customerId));
+                    }
+                    return customer360Adapter.updateProfile(customerId, toUpdateDto(request));
+                })
+                .map(this::toProfileResponse);
+    }
+
+    private Customer360ProfileUpdateDto toUpdateDto(ProfileUpdateRequest request) {
+        return new Customer360ProfileUpdateDto(
+                request.phone(),
+                request.addressLine1(),
+                request.addressLine2(),
+                request.subDistrict(),
+                request.district(),
+                request.province(),
+                request.postalCode());
     }
 
     private ProfileResponse toProfileResponse(Customer360ProfileDto profile) {
