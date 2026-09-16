@@ -88,4 +88,53 @@ describe('ProfileSettingPage', () => {
     const [, init] = reloadFetch.mock.calls[0] as [string, RequestInit | undefined]
     expect(init?.method ?? 'GET').toBe('GET')
   })
+
+  it('acceptance: contact save then address save then reload shows both new values from the service, with neither save rejected', async () => {
+    const afterContactSave = { ...initialProfile, phone: '0899999999', version: 'v2' }
+    const afterAddressSave = { ...afterContactSave, addressLine1: '999 Moo 9', version: 'v3' }
+    const firstVisitFetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(initialProfile))
+      .mockResolvedValueOnce(jsonResponse(afterContactSave))
+      .mockResolvedValueOnce(jsonResponse(afterAddressSave))
+    vi.stubGlobal('fetch', firstVisitFetch)
+    const user = userEvent.setup()
+
+    const { unmount } = render(<ProfileSettingPage />)
+    await waitFor(() => expect(screen.getByText('Profile Setting')).toBeInTheDocument())
+
+    const contactSection = within(screen.getByRole('region', { name: 'Contact' }))
+    await user.clear(contactSection.getByLabelText('Phone number'))
+    await user.type(contactSection.getByLabelText('Phone number'), '0899999999')
+    await user.click(contactSection.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(contactSection.getByRole('status')).toHaveTextContent('Saved.'))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    const addressSection = within(screen.getByRole('region', { name: 'Address' }))
+    await user.clear(addressSection.getByLabelText('Address No.'))
+    await user.type(addressSection.getByLabelText('Address No.'), '999 Moo 9')
+    await user.click(addressSection.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(addressSection.getByRole('status')).toHaveTextContent('Saved.'))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    const addressSaveInit = firstVisitFetch.mock.calls[2][1] as RequestInit
+    expect((addressSaveInit.headers as Record<string, string>)['If-Match']).toBe('v2')
+    unmount()
+
+    const reloadFetch = vi.fn().mockResolvedValueOnce(jsonResponse(afterAddressSave))
+    vi.stubGlobal('fetch', reloadFetch)
+
+    render(<ProfileSettingPage />)
+    await waitFor(() =>
+      expect(within(screen.getByRole('region', { name: 'Contact' })).getByLabelText('Phone number'))
+        .toHaveValue('0899999999'),
+    )
+    expect(
+      within(screen.getByRole('region', { name: 'Address' })).getByLabelText('Address No.'),
+    ).toHaveValue('999 Moo 9')
+
+    expect(reloadFetch).toHaveBeenCalledTimes(1)
+    const [, reloadInit] = reloadFetch.mock.calls[0] as [string, RequestInit | undefined]
+    expect(reloadInit?.method ?? 'GET').toBe('GET')
+  })
 })
