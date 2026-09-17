@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.List;
 
 import org.springframework.stereotype.Service;
 
@@ -12,10 +13,13 @@ import reactor.core.publisher.Mono;
 import th.co.chaiyo.customerportal.adaptor.Customer360Adapter;
 import th.co.chaiyo.customerportal.adaptor.Customer360ProfileDto;
 import th.co.chaiyo.customerportal.adaptor.Customer360ProfileUpdateDto;
+import th.co.chaiyo.customerportal.exception.ProfileValidationException;
 import th.co.chaiyo.customerportal.exception.ProfileVersionConflictException;
 import th.co.chaiyo.customerportal.model.request.ProfileUpdateRequest;
+import th.co.chaiyo.customerportal.model.response.FieldValidationError;
 import th.co.chaiyo.customerportal.model.response.ProfileResponse;
 import th.co.chaiyo.customerportal.service.CustomerProfileService;
+import th.co.chaiyo.customerportal.validation.ProfileUpdateValidator;
 
 /**
  * A-2: Customer360's own versioning semantics are not yet known, so this
@@ -30,6 +34,7 @@ public class CustomerProfileServiceImpl implements CustomerProfileService {
     private static final String FIELD_DELIMITER = " ";
 
     private final Customer360Adapter customer360Adapter;
+    private final ProfileUpdateValidator profileUpdateValidator;
 
     @Override
     public Mono<ProfileResponse> getProfile(String customerId) {
@@ -39,6 +44,10 @@ public class CustomerProfileServiceImpl implements CustomerProfileService {
 
     @Override
     public Mono<ProfileResponse> updateProfile(String customerId, String ifMatch, ProfileUpdateRequest request) {
+        List<FieldValidationError> validationErrors = profileUpdateValidator.validate(request);
+        if (!validationErrors.isEmpty()) {
+            return Mono.error(new ProfileValidationException(validationErrors));
+        }
         return customer360Adapter.fetchProfile(customerId)
                 .flatMap(current -> {
                     if (!computeVersion(current).equals(ifMatch)) {

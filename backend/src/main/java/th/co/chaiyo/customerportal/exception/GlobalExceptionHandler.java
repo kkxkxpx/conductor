@@ -9,10 +9,17 @@ import org.springframework.web.bind.support.WebExchangeBindException;
 import org.springframework.web.server.ServerWebInputException;
 
 import reactor.core.publisher.Mono;
+import th.co.chaiyo.customerportal.model.response.ValidationErrorResponse;
 
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(ProfileValidationException.class)
+    public Mono<ResponseEntity<ValidationErrorResponse>> handleValidation(ProfileValidationException ex) {
+        return Mono.just(ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(new ValidationErrorResponse(ex.getErrors())));
+    }
 
     @ExceptionHandler(CustomerNotFoundException.class)
     public Mono<ResponseEntity<ApiError>> handleNotFound(CustomerNotFoundException ex) {

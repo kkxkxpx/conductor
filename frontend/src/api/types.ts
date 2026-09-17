@@ -10,3 +10,9 @@ export interface CustomerProfile {
 }
 
 export type ProfileUpdate = Partial<Omit<CustomerProfile, 'version'>>
+
+/** R-3 / R-14: one entry per offending field in a 422 response. */
+export interface FieldValidationError {
+  field: string
+  message: string
+}

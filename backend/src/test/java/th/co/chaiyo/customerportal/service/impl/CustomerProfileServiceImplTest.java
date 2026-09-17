@@ -22,6 +22,7 @@ import th.co.chaiyo.customerportal.exception.CustomerNotFoundException;
 import th.co.chaiyo.customerportal.exception.ProfileVersionConflictException;
 import th.co.chaiyo.customerportal.model.request.ProfileUpdateRequest;
 import th.co.chaiyo.customerportal.model.response.ProfileResponse;
+import th.co.chaiyo.customerportal.validation.ProfileUpdateValidator;
 
 @ExtendWith(MockitoExtension.class)
 class CustomerProfileServiceImplTest {
@@ -44,7 +45,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void getProfileReturnsAllSevenProfileFieldsFromCustomer360() {
-        service = new CustomerProfileServiceImpl(customer360Adapter);
+        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
 
         ProfileResponse response = service.getProfile("cust-1").block();
@@ -60,7 +61,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void getProfileReturnsNonBlankVersion() {
-        service = new CustomerProfileServiceImpl(customer360Adapter);
+        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
 
         ProfileResponse response = service.getProfile("cust-1").block();
@@ -70,7 +71,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void getProfileReturnsSameVersionOnTwoConsecutiveReadsWithNoIntervalWrite() {
-        service = new CustomerProfileServiceImpl(customer360Adapter);
+        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
         when(customer360Adapter.fetchProfile("cust-1"))
                 .thenReturn(Mono.just(sampleDto()), Mono.just(sampleDto()));
 
@@ -82,7 +83,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void getProfileReturnsDifferentVersionWhenAProfileFieldDiffers() {
-        service = new CustomerProfileServiceImpl(customer360Adapter);
+        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
         Customer360ProfileDto changed = new Customer360ProfileDto(
                 "0899999999", "123 Moo 4", "Soi 5", "Bang Rak", "Bang Rak", "Bangkok", "10500");
         when(customer360Adapter.fetchProfile("cust-1"))
@@ -96,7 +97,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void getProfilePropagatesCustomerNotFoundFromAdapter() {
-        service = new CustomerProfileServiceImpl(customer360Adapter);
+        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
         when(customer360Adapter.fetchProfile("missing"))
                 .thenReturn(Mono.error(new CustomerNotFoundException("missing")));
 
@@ -107,7 +108,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void updateProfileSendsOnlyThePhoneFieldWhenOnlyPhoneIsProvided() {
-        service = new CustomerProfileServiceImpl(customer360Adapter);
+        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
         String currentVersion = service.getProfile("cust-1").block().version();
         when(customer360Adapter.updateProfile(eq("cust-1"), any())).thenReturn(Mono.just(sampleDto()));
@@ -128,7 +129,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void updateProfileRejectsWithVersionConflictWhenIfMatchDoesNotMatchTheCurrentVersion() {
-        service = new CustomerProfileServiceImpl(customer360Adapter);
+        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
         ProfileUpdateRequest request = new ProfileUpdateRequest("0899999999", null, null, null, null, null, null);
 
@@ -139,7 +140,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void updateProfileNeverWritesToCustomer360WhenIfMatchDoesNotMatch() {
-        service = new CustomerProfileServiceImpl(customer360Adapter);
+        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
         ProfileUpdateRequest request = new ProfileUpdateRequest("0899999999", null, null, null, null, null, null);
 
@@ -152,7 +153,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void updateProfileReturnsAllSevenFieldsAtTheirNewValuesOnSuccess() {
-        service = new CustomerProfileServiceImpl(customer360Adapter);
+        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
         String currentVersion = service.getProfile("cust-1").block().version();
         Customer360ProfileDto updatedDto = new Customer360ProfileDto(
@@ -174,7 +175,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void updateProfileReturnsANewVersionDifferentFromTheVersionItWasCalledWith() {
-        service = new CustomerProfileServiceImpl(customer360Adapter);
+        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
         String currentVersion = service.getProfile("cust-1").block().version();
         Customer360ProfileDto updatedDto = new Customer360ProfileDto(
