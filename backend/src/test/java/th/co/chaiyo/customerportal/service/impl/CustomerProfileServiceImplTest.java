@@ -40,8 +40,9 @@ class CustomerProfileServiceImplTest {
     private Customer360Adapter customer360Adapter;
 
     private final Clock clock = Clock.fixed(Instant.parse("2026-09-17T10:00:00Z"), ZoneOffset.UTC);
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final ProfileWriteLatencyMetrics profileWriteLatencyMetrics =
-            new ProfileWriteLatencyMetrics(new SimpleMeterRegistry());
+            new ProfileWriteLatencyMetrics(meterRegistry);
 
     private CustomerProfileServiceImpl service;
 
@@ -225,6 +226,34 @@ class CustomerProfileServiceImplTest {
         StepVerifier.create(service.updateProfile("cust-1", currentVersion, request, "agent-1"))
                 .expectError(AuditWriteFailedException.class)
                 .verify();
+    }
+
+    @Test
+    void updateProfileRecordsOneSampleOnTheCustomer360WriteTimerOnSuccess() {
+        service = newService();
+        when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
+        String currentVersion = service.getProfile("cust-1").block().version();
+        when(customer360Adapter.updateProfile(eq("cust-1"), any())).thenReturn(Mono.just(sampleDto()));
+        ProfileUpdateRequest request = new ProfileUpdateRequest("0899999999", null, null, null, null, null, null);
+
+        service.updateProfile("cust-1", currentVersion, request, "agent-1").block();
+
+        assertThat(meterRegistry.find("customerportal.profile.patch.customer360.write").timer().count())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void updateProfileRecordsNoCustomer360WriteSampleWhenRejectedForVersionConflict() {
+        service = newService();
+        when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
+        ProfileUpdateRequest request = new ProfileUpdateRequest("0899999999", null, null, null, null, null, null);
+
+        StepVerifier.create(service.updateProfile("cust-1", "stale-version", request, "agent-1"))
+                .expectError(ProfileVersionConflictException.class)
+                .verify();
+
+        assertThat(meterRegistry.find("customerportal.profile.patch.customer360.write").timer().count())
+                .isEqualTo(0);
     }
 
     @Test

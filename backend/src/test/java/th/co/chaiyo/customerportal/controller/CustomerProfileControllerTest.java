@@ -187,6 +187,23 @@ class CustomerProfileControllerTest {
     }
 
     @Test
+    void updateProfileWrapsTheServiceCallWithThePatchLatencyTimer() {
+        ProfileResponse response = new ProfileResponse(
+                "0899999999", "123 Moo 4", "Soi 5", "Bang Rak", "Bang Rak", "Bangkok", "10500", "v-new456");
+        when(customerProfileService.updateProfile(eq("cust-1"), eq("v-abc123"), any(ProfileUpdateRequest.class), any()))
+                .thenReturn(Mono.just(response));
+
+        webTestClient.patch().uri("/v1/customers/cust-1/profile")
+                .header("If-Match", "v-abc123")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"phone\":\"0899999999\"}")
+                .exchange()
+                .expectStatus().isOk();
+
+        verify(profileWriteLatencyMetrics).timePatch(any());
+    }
+
+    @Test
     void updateProfileReturns400WhenTheIfMatchHeaderIsMissing() {
         webTestClient.patch().uri("/v1/customers/cust-1/profile")
                 .contentType(MediaType.APPLICATION_JSON)
