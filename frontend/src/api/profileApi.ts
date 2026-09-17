@@ -10,8 +10,28 @@ export class ProfileApiError extends Error {
   }
 }
 
+/**
+ * R-7/R-15: a 409 body is the current profile (GET shape, its own version),
+ * not an error envelope - carry it so the page can offer to reload in place.
+ */
+export class ProfileConflictError extends Error {
+  readonly currentProfile: CustomerProfile
+
+  constructor(currentProfile: CustomerProfile) {
+    super('This profile changed while you were editing')
+    this.currentProfile = currentProfile
+  }
+}
+
+function isCustomerProfile(body: unknown): body is CustomerProfile {
+  return body !== null && typeof body === 'object' && 'version' in body
+}
+
 async function throwForResponse(response: Response): Promise<never> {
   const body: unknown = await response.json().catch(() => null)
+  if (response.status === 409 && isCustomerProfile(body)) {
+    throw new ProfileConflictError(body)
+  }
   const message =
     body && typeof body === 'object' && 'message' in body && typeof body.message === 'string'
       ? body.message

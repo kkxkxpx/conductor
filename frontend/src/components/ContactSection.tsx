@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { ProfileConflictError } from '../api/profileApi'
 import type { CustomerProfile, ProfileUpdate } from '../api/types'
 
 interface ContactSectionProps {
@@ -21,7 +22,11 @@ export function ContactSection({ profile, onSave }: ContactSectionProps) {
       await onSave({ phone })
       setSaved(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save contact details')
+      // R-15: the page-level banner already reports conflicts; this typed
+      // value must stay on screen rather than being replaced by an error.
+      if (!(err instanceof ProfileConflictError)) {
+        setError(err instanceof Error ? err.message : 'Failed to save contact details')
+      }
     } finally {
       setSaving(false)
     }

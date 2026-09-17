@@ -155,7 +155,7 @@ class CustomerProfileIntegrationTest {
     }
 
     @Test
-    void patchProfileReturns409WhenTheIfMatchHeaderCarriesAStaleVersionThroughTheFullStack() {
+    void patchProfileReturns409WithTheCurrentProfileWhenTheIfMatchHeaderCarriesAStaleVersionThroughTheFullStack() {
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
 
         webTestClient.patch().uri("/v1/customers/cust-1/profile")
@@ -165,7 +165,8 @@ class CustomerProfileIntegrationTest {
                 .exchange()
                 .expectStatus().isEqualTo(409)
                 .expectBody()
-                .jsonPath("$.code").isEqualTo("CF001");
+                .jsonPath("$.phone").isEqualTo("0812345678")
+                .jsonPath("$.version").isNotEmpty();
     }
 
     @Test

@@ -9,6 +9,7 @@ import org.springframework.web.bind.support.WebExchangeBindException;
 import org.springframework.web.server.ServerWebInputException;
 
 import reactor.core.publisher.Mono;
+import th.co.chaiyo.customerportal.model.response.ProfileResponse;
 
 @Slf4j
 @RestControllerAdvice
@@ -28,9 +29,10 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(ProfileVersionConflictException.class)
-    public Mono<ResponseEntity<ApiError>> handleVersionConflict(ProfileVersionConflictException ex) {
-        return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(new ApiError(ex.getCode(), ex.getMessage(), ex.getDescription())));
+    public Mono<ResponseEntity<ProfileResponse>> handleVersionConflict(ProfileVersionConflictException ex) {
+        // R-7: the body is the current profile (GET shape, its own version),
+        // not an ApiError envelope - the caller needs it to recover in place.
+        return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT).body(ex.getCurrentProfile()));
     }
 
     @ExceptionHandler({WebExchangeBindException.class, ServerWebInputException.class})

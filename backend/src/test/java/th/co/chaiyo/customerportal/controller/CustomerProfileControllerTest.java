@@ -144,9 +144,11 @@ class CustomerProfileControllerTest {
     }
 
     @Test
-    void updateProfileReturns409WhenTheServiceReportsAVersionConflict() {
+    void updateProfileReturns409WithTheCurrentProfileWhenTheServiceReportsAVersionConflict() {
+        ProfileResponse currentProfile = new ProfileResponse(
+                "0812345678", "123 Moo 4", "Soi 5", "Bang Rak", "Bang Rak", "Bangkok", "10500", "v-current789");
         when(customerProfileService.updateProfile(eq("cust-1"), eq("stale-version"), any(ProfileUpdateRequest.class)))
-                .thenReturn(Mono.error(new ProfileVersionConflictException("cust-1")));
+                .thenReturn(Mono.error(new ProfileVersionConflictException("cust-1", currentProfile)));
 
         webTestClient.patch().uri("/v1/customers/cust-1/profile")
                 .header("If-Match", "stale-version")
@@ -155,7 +157,8 @@ class CustomerProfileControllerTest {
                 .exchange()
                 .expectStatus().isEqualTo(409)
                 .expectBody()
-                .jsonPath("$.code").isEqualTo("CF001");
+                .jsonPath("$.phone").isEqualTo("0812345678")
+                .jsonPath("$.version").isEqualTo("v-current789");
     }
 
     @Test

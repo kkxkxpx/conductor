@@ -42,7 +42,8 @@ public class CustomerProfileServiceImpl implements CustomerProfileService {
         return customer360Adapter.fetchProfile(customerId)
                 .flatMap(current -> {
                     if (!computeVersion(current).equals(ifMatch)) {
-                        return Mono.error(new ProfileVersionConflictException(customerId));
+                        return Mono.error(
+                                new ProfileVersionConflictException(customerId, toProfileResponse(current)));
                     }
                     return customer360Adapter.updateProfile(customerId, toUpdateDto(request));
                 })

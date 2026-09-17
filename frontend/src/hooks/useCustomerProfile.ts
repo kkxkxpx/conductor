@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { fetchProfile, updateProfile } from '../api/profileApi'
+import { fetchProfile, ProfileConflictError, updateProfile } from '../api/profileApi'
 import type { CustomerProfile, ProfileUpdate } from '../api/types'
 import { CUSTOMER_ID } from '../config'
 
@@ -7,7 +7,11 @@ interface UseCustomerProfileResult {
   profile: CustomerProfile | null
   loading: boolean
   loadError: string | null
+  /** R-15: the current profile from a 409, or null when there is no unresolved conflict. */
+  conflict: CustomerProfile | null
   save: (update: ProfileUpdate) => Promise<void>
+  /** Adopts the conflicting profile as the new baseline without a full page reload. */
+  reloadAfterConflict: () => void
 }
 
 /**
@@ -20,6 +24,7 @@ export function useCustomerProfile(): UseCustomerProfileResult {
   const [profile, setProfile] = useState<CustomerProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [conflict, setConflict] = useState<CustomerProfile | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -47,11 +52,26 @@ export function useCustomerProfile(): UseCustomerProfileResult {
       if (!profile) {
         throw new Error('Profile has not loaded yet')
       }
-      const result = await updateProfile(CUSTOMER_ID, profile.version, update)
-      setProfile(result)
+      try {
+        const result = await updateProfile(CUSTOMER_ID, profile.version, update)
+        setProfile(result)
+        setConflict(null)
+      } catch (error) {
+        if (error instanceof ProfileConflictError) {
+          setConflict(error.currentProfile)
+        }
+        throw error
+      }
     },
     [profile],
   )
 
-  return { profile, loading, loadError, save }
+  const reloadAfterConflict = useCallback(() => {
+    if (conflict) {
+      setProfile(conflict)
+      setConflict(null)
+    }
+  }, [conflict])
+
+  return { profile, loading, loadError, conflict, save, reloadAfterConflict }
 }
