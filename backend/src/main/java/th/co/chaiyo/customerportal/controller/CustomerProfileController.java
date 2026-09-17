@@ -32,8 +32,9 @@ public class CustomerProfileController {
     public Mono<ResponseEntity<ProfileResponse>> updateProfile(
             @PathVariable("id") String id,
             @RequestHeader("If-Match") String ifMatch,
+            @RequestHeader(value = "X-Actor-Id", required = false, defaultValue = "unknown") String actor,
             @RequestBody ProfileUpdateRequest request) {
-        return customerProfileService.updateProfile(id, ifMatch, request)
+        return customerProfileService.updateProfile(id, ifMatch, request, actor)
                 .map(ResponseEntity::ok);
     }
 }

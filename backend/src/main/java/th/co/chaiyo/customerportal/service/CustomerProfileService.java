@@ -8,5 +8,5 @@ public interface CustomerProfileService {
 
     Mono<ProfileResponse> getProfile(String customerId);
 
-    Mono<ProfileResponse> updateProfile(String customerId, String ifMatch, ProfileUpdateRequest request);
+    Mono<ProfileResponse> updateProfile(String customerId, String ifMatch, ProfileUpdateRequest request, String actor);
 }

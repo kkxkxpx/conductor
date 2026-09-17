@@ -3,9 +3,14 @@ package th.co.chaiyo.customerportal.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,7 +35,14 @@ class CustomerProfileServiceImplTest {
     @Mock
     private Customer360Adapter customer360Adapter;
 
+    private final Clock clock = Clock.fixed(Instant.parse("2026-09-17T10:00:00Z"), ZoneOffset.UTC);
+
     private CustomerProfileServiceImpl service;
+
+    private CustomerProfileServiceImpl newService() {
+        lenient().when(customer360Adapter.appendAuditRecord(any())).thenReturn(Mono.empty());
+        return new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator(), clock);
+    }
 
     private Customer360ProfileDto sampleDto() {
         return new Customer360ProfileDto(
@@ -45,7 +57,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void getProfileReturnsAllSevenProfileFieldsFromCustomer360() {
-        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
+        service = newService();
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
 
         ProfileResponse response = service.getProfile("cust-1").block();
@@ -61,7 +73,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void getProfileReturnsNonBlankVersion() {
-        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
+        service = newService();
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
 
         ProfileResponse response = service.getProfile("cust-1").block();
@@ -71,7 +83,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void getProfileReturnsSameVersionOnTwoConsecutiveReadsWithNoIntervalWrite() {
-        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
+        service = newService();
         when(customer360Adapter.fetchProfile("cust-1"))
                 .thenReturn(Mono.just(sampleDto()), Mono.just(sampleDto()));
 
@@ -83,7 +95,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void getProfileReturnsDifferentVersionWhenAProfileFieldDiffers() {
-        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
+        service = newService();
         Customer360ProfileDto changed = new Customer360ProfileDto(
                 "0899999999", "123 Moo 4", "Soi 5", "Bang Rak", "Bang Rak", "Bangkok", "10500");
         when(customer360Adapter.fetchProfile("cust-1"))
@@ -97,7 +109,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void getProfilePropagatesCustomerNotFoundFromAdapter() {
-        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
+        service = newService();
         when(customer360Adapter.fetchProfile("missing"))
                 .thenReturn(Mono.error(new CustomerNotFoundException("missing")));
 
@@ -108,13 +120,13 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void updateProfileSendsOnlyThePhoneFieldWhenOnlyPhoneIsProvided() {
-        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
+        service = newService();
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
         String currentVersion = service.getProfile("cust-1").block().version();
         when(customer360Adapter.updateProfile(eq("cust-1"), any())).thenReturn(Mono.just(sampleDto()));
         ProfileUpdateRequest request = new ProfileUpdateRequest("0899999999", null, null, null, null, null, null);
 
-        service.updateProfile("cust-1", currentVersion, request).block();
+        service.updateProfile("cust-1", currentVersion, request, "agent-1").block();
 
         ArgumentCaptor<Customer360ProfileUpdateDto> captor = ArgumentCaptor.forClass(Customer360ProfileUpdateDto.class);
         verify(customer360Adapter).updateProfile(eq("cust-1"), captor.capture());
@@ -129,22 +141,22 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void updateProfileRejectsWithVersionConflictWhenIfMatchDoesNotMatchTheCurrentVersion() {
-        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
+        service = newService();
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
         ProfileUpdateRequest request = new ProfileUpdateRequest("0899999999", null, null, null, null, null, null);
 
-        StepVerifier.create(service.updateProfile("cust-1", "stale-version", request))
+        StepVerifier.create(service.updateProfile("cust-1", "stale-version", request, "agent-1"))
                 .expectError(ProfileVersionConflictException.class)
                 .verify();
     }
 
     @Test
     void updateProfileNeverWritesToCustomer360WhenIfMatchDoesNotMatch() {
-        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
+        service = newService();
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
         ProfileUpdateRequest request = new ProfileUpdateRequest("0899999999", null, null, null, null, null, null);
 
-        StepVerifier.create(service.updateProfile("cust-1", "stale-version", request))
+        StepVerifier.create(service.updateProfile("cust-1", "stale-version", request, "agent-1"))
                 .expectError(ProfileVersionConflictException.class)
                 .verify();
 
@@ -153,7 +165,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void updateProfileReturnsAllSevenFieldsAtTheirNewValuesOnSuccess() {
-        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
+        service = newService();
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
         String currentVersion = service.getProfile("cust-1").block().version();
         Customer360ProfileDto updatedDto = new Customer360ProfileDto(
@@ -162,7 +174,7 @@ class CustomerProfileServiceImplTest {
         ProfileUpdateRequest request = new ProfileUpdateRequest(
                 "0899999999", "999 Moo 9", "Soi 9", "Silom", null, null, null);
 
-        ProfileResponse response = service.updateProfile("cust-1", currentVersion, request).block();
+        ProfileResponse response = service.updateProfile("cust-1", currentVersion, request, "agent-1").block();
 
         assertThat(response.phone()).isEqualTo("0899999999");
         assertThat(response.addressLine1()).isEqualTo("999 Moo 9");
@@ -175,7 +187,7 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void updateProfileReturnsANewVersionDifferentFromTheVersionItWasCalledWith() {
-        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator());
+        service = newService();
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
         String currentVersion = service.getProfile("cust-1").block().version();
         Customer360ProfileDto updatedDto = new Customer360ProfileDto(
@@ -183,7 +195,7 @@ class CustomerProfileServiceImplTest {
         when(customer360Adapter.updateProfile(eq("cust-1"), any())).thenReturn(Mono.just(updatedDto));
         ProfileUpdateRequest request = new ProfileUpdateRequest("0899999999", null, null, null, null, null, null);
 
-        ProfileResponse response = service.updateProfile("cust-1", currentVersion, request).block();
+        ProfileResponse response = service.updateProfile("cust-1", currentVersion, request, "agent-1").block();
 
         assertThat(response.version()).isNotEqualTo(currentVersion);
     }

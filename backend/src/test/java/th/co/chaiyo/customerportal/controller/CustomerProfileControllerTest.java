@@ -91,7 +91,7 @@ class CustomerProfileControllerTest {
     void updateProfileReturns200WithThePatchedProfileWhenIfMatchMatches() {
         ProfileResponse response = new ProfileResponse(
                 "0899999999", "123 Moo 4", "Soi 5", "Bang Rak", "Bang Rak", "Bangkok", "10500", "v-new456");
-        when(customerProfileService.updateProfile(eq("cust-1"), eq("v-abc123"), any(ProfileUpdateRequest.class)))
+        when(customerProfileService.updateProfile(eq("cust-1"), eq("v-abc123"), any(ProfileUpdateRequest.class), any()))
                 .thenReturn(Mono.just(response));
 
         webTestClient.patch().uri("/v1/customers/cust-1/profile")
@@ -109,7 +109,7 @@ class CustomerProfileControllerTest {
     void updateProfileForwardsTheIfMatchHeaderAndBodyToTheService() {
         ProfileResponse response = new ProfileResponse(
                 "0899999999", "123 Moo 4", "Soi 5", "Bang Rak", "Bang Rak", "Bangkok", "10500", "v-new456");
-        when(customerProfileService.updateProfile(eq("cust-1"), eq("v-abc123"), any(ProfileUpdateRequest.class)))
+        when(customerProfileService.updateProfile(eq("cust-1"), eq("v-abc123"), any(ProfileUpdateRequest.class), any()))
                 .thenReturn(Mono.just(response));
 
         webTestClient.patch().uri("/v1/customers/cust-1/profile")
@@ -121,14 +121,14 @@ class CustomerProfileControllerTest {
 
         verify(customerProfileService).updateProfile(
                 eq("cust-1"), eq("v-abc123"), eq(new ProfileUpdateRequest(
-                        "0899999999", null, null, null, null, null, null)));
+                        "0899999999", null, null, null, null, null, null)), any());
     }
 
     @Test
     void updateProfileIgnoresFieldsOutsideTheSevenNamedProfileFields() {
         ProfileResponse response = new ProfileResponse(
                 "0899999999", "123 Moo 4", "Soi 5", "Bang Rak", "Bang Rak", "Bangkok", "10500", "v-new456");
-        when(customerProfileService.updateProfile(eq("cust-1"), eq("v-abc123"), any(ProfileUpdateRequest.class)))
+        when(customerProfileService.updateProfile(eq("cust-1"), eq("v-abc123"), any(ProfileUpdateRequest.class), any()))
                 .thenReturn(Mono.just(response));
 
         webTestClient.patch().uri("/v1/customers/cust-1/profile")
@@ -140,12 +140,12 @@ class CustomerProfileControllerTest {
 
         verify(customerProfileService).updateProfile(
                 eq("cust-1"), eq("v-abc123"), eq(new ProfileUpdateRequest(
-                        "0899999999", null, null, null, null, null, null)));
+                        "0899999999", null, null, null, null, null, null)), any());
     }
 
     @Test
     void updateProfileReturns409WhenTheServiceReportsAVersionConflict() {
-        when(customerProfileService.updateProfile(eq("cust-1"), eq("stale-version"), any(ProfileUpdateRequest.class)))
+        when(customerProfileService.updateProfile(eq("cust-1"), eq("stale-version"), any(ProfileUpdateRequest.class), any()))
                 .thenReturn(Mono.error(new ProfileVersionConflictException("cust-1")));
 
         webTestClient.patch().uri("/v1/customers/cust-1/profile")

@@ -3,8 +3,10 @@ package th.co.chaiyo.customerportal.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -44,6 +46,11 @@ class CustomerProfileIntegrationTest {
 
     @MockBean
     private Customer360Adapter customer360Adapter;
+
+    @BeforeEach
+    void stubAuditWritesAsSuccessful() {
+        lenient().when(customer360Adapter.appendAuditRecord(any())).thenReturn(Mono.empty());
+    }
 
     private Customer360ProfileDto sampleDto() {
         return new Customer360ProfileDto(
