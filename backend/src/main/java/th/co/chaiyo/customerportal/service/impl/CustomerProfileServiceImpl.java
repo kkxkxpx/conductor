@@ -3,6 +3,8 @@ package th.co.chaiyo.customerportal.service.impl;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 
@@ -11,6 +13,7 @@ import org.springframework.stereotype.Service;
 import lombok.RequiredArgsConstructor;
 import reactor.core.publisher.Mono;
 import th.co.chaiyo.customerportal.adaptor.Customer360Adapter;
+import th.co.chaiyo.customerportal.adaptor.Customer360AuditRecordDto;
 import th.co.chaiyo.customerportal.adaptor.Customer360ProfileDto;
 import th.co.chaiyo.customerportal.adaptor.Customer360ProfileUpdateDto;
 import th.co.chaiyo.customerportal.exception.ProfileValidationException;
@@ -35,6 +38,7 @@ public class CustomerProfileServiceImpl implements CustomerProfileService {
 
     private final Customer360Adapter customer360Adapter;
     private final ProfileUpdateValidator profileUpdateValidator;
+    private final Clock clock;
 
     @Override
     public Mono<ProfileResponse> getProfile(String customerId) {
@@ -43,19 +47,66 @@ public class CustomerProfileServiceImpl implements CustomerProfileService {
     }
 
     @Override
-    public Mono<ProfileResponse> updateProfile(String customerId, String ifMatch, ProfileUpdateRequest request) {
+    public Mono<ProfileResponse> updateProfile(
+            String customerId, String ifMatch, ProfileUpdateRequest request, String actor) {
         List<FieldValidationError> validationErrors = profileUpdateValidator.validate(request);
         if (!validationErrors.isEmpty()) {
             return Mono.error(new ProfileValidationException(validationErrors));
         }
+        List<String> changedFields = changedFieldNames(request);
         return customer360Adapter.fetchProfile(customerId)
                 .flatMap(current -> {
                     if (!computeVersion(current).equals(ifMatch)) {
                         return Mono.error(new ProfileVersionConflictException(customerId));
                     }
-                    return customer360Adapter.updateProfile(customerId, toUpdateDto(request));
+                    return customer360Adapter.updateProfile(customerId, toUpdateDto(request))
+                            .flatMap(updated -> appendAuditRecord(customerId, changedFields, actor)
+                                    .thenReturn(updated));
                 })
                 .map(this::toProfileResponse);
+    }
+
+    /**
+     * R-9: fired only after the profile write to Customer360 has already
+     * succeeded, so a failure here means the profile change is persisted but
+     * unaudited. That is surfaced as an error (AuditWriteFailedException,
+     * mapped to a 502 by GlobalExceptionHandler) rather than swallowed, since
+     * no transaction can span the two remote calls.
+     */
+    private Mono<Void> appendAuditRecord(String customerId, List<String> changedFields, String actor) {
+        Customer360AuditRecordDto record = new Customer360AuditRecordDto(
+                customerId, changedFields, actor, clock.instant());
+        return customer360Adapter.appendAuditRecord(record);
+    }
+
+    /**
+     * R-8: only the fields actually present in the request (R-1: null means
+     * "leave unchanged") are named as changed.
+     */
+    private List<String> changedFieldNames(ProfileUpdateRequest request) {
+        List<String> names = new ArrayList<>();
+        if (request.phone() != null) {
+            names.add("phone");
+        }
+        if (request.addressLine1() != null) {
+            names.add("addressLine1");
+        }
+        if (request.addressLine2() != null) {
+            names.add("addressLine2");
+        }
+        if (request.subDistrict() != null) {
+            names.add("subDistrict");
+        }
+        if (request.district() != null) {
+            names.add("district");
+        }
+        if (request.province() != null) {
+            names.add("province");
+        }
+        if (request.postalCode() != null) {
+            names.add("postalCode");
+        }
+        return List.copyOf(names);
     }
 
     private Customer360ProfileUpdateDto toUpdateDto(ProfileUpdateRequest request) {

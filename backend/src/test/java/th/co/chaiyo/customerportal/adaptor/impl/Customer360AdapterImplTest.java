@@ -2,6 +2,9 @@ package th.co.chaiyo.customerportal.adaptor.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Instant;
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -10,8 +13,10 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
+import th.co.chaiyo.customerportal.adaptor.Customer360AuditRecordDto;
 import th.co.chaiyo.customerportal.adaptor.Customer360ProfileDto;
 import th.co.chaiyo.customerportal.adaptor.Customer360ProfileUpdateDto;
+import th.co.chaiyo.customerportal.exception.AuditWriteFailedException;
 import th.co.chaiyo.customerportal.exception.Customer360UnavailableException;
 import th.co.chaiyo.customerportal.exception.CustomerNotFoundException;
 
@@ -99,6 +104,32 @@ class Customer360AdapterImplTest {
 
         StepVerifier.create(adapter.updateProfile("missing", update))
                 .expectError(CustomerNotFoundException.class)
+                .verify();
+    }
+
+    @Test
+    void appendAuditRecordCompletesOnASuccessfulResponse() {
+        ClientResponse response = ClientResponse.create(HttpStatus.CREATED).build();
+        Customer360AdapterImpl adapter = adapterRespondingWith(response);
+        Customer360AuditRecordDto record = new Customer360AuditRecordDto(
+                "cust-1", List.of("phone"), "agent-1", Instant.parse("2026-09-17T00:00:00Z"));
+
+        StepVerifier.create(adapter.appendAuditRecord(record))
+                .verifyComplete();
+    }
+
+    @Test
+    void appendAuditRecordMapsAnErrorResponseToAuditWriteFailedException() {
+        ClientResponse response = ClientResponse.create(HttpStatus.INTERNAL_SERVER_ERROR)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{}")
+                .build();
+        Customer360AdapterImpl adapter = adapterRespondingWith(response);
+        Customer360AuditRecordDto record = new Customer360AuditRecordDto(
+                "cust-1", List.of("phone"), "agent-1", Instant.parse("2026-09-17T00:00:00Z"));
+
+        StepVerifier.create(adapter.appendAuditRecord(record))
+                .expectError(AuditWriteFailedException.class)
                 .verify();
     }
 }

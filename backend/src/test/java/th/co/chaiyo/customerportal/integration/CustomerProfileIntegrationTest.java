@@ -3,9 +3,15 @@ package th.co.chaiyo.customerportal.integration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
@@ -18,7 +24,9 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 
 import reactor.core.publisher.Mono;
 import th.co.chaiyo.customerportal.adaptor.Customer360Adapter;
+import th.co.chaiyo.customerportal.adaptor.Customer360AuditRecordDto;
 import th.co.chaiyo.customerportal.adaptor.Customer360ProfileDto;
+import th.co.chaiyo.customerportal.exception.AuditWriteFailedException;
 import th.co.chaiyo.customerportal.exception.CustomerNotFoundException;
 import th.co.chaiyo.customerportal.model.response.ProfileResponse;
 
@@ -44,6 +52,11 @@ class CustomerProfileIntegrationTest {
 
     @MockBean
     private Customer360Adapter customer360Adapter;
+
+    @BeforeEach
+    void stubAuditWritesAsSuccessful() {
+        lenient().when(customer360Adapter.appendAuditRecord(any())).thenReturn(Mono.empty());
+    }
 
     private Customer360ProfileDto sampleDto() {
         return new Customer360ProfileDto(
@@ -229,5 +242,54 @@ class CustomerProfileIntegrationTest {
                 .bodyValue("{\"addressLine1\":\"999 Moo 9\"}")
                 .exchange()
                 .expectStatus().isEqualTo(409);
+    }
+
+    @Test
+    void phoneOnlyPatchAppendsAnAuditRecordNamingOnlyPhoneThroughTheFullStack() {
+        when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
+        Customer360ProfileDto updatedDto = new Customer360ProfileDto(
+                "0899999999", "123 Moo 4", "Soi 5", "Bang Rak", "Bang Rak", "Bangkok", "10500");
+        when(customer360Adapter.updateProfile(eq("cust-1"), any())).thenReturn(Mono.just(updatedDto));
+        String currentVersion = readProfile("cust-1").version();
+
+        webTestClient.patch().uri("/v1/customers/cust-1/profile")
+                .header(HttpHeaders.IF_MATCH, currentVersion)
+                .header("X-Actor-Id", "agent-42")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"phone\":\"0899999999\"}")
+                .exchange()
+                .expectStatus().isOk();
+
+        ArgumentCaptor<Customer360AuditRecordDto> captor = ArgumentCaptor.forClass(Customer360AuditRecordDto.class);
+        verify(customer360Adapter).appendAuditRecord(captor.capture());
+        Customer360AuditRecordDto record = captor.getValue();
+        assertThat(record.customerId()).isEqualTo("cust-1");
+        assertThat(record.changedFields()).containsExactly("phone");
+        assertThat(record.actor()).isEqualTo("agent-42");
+        assertThat(record.timestamp()).isNotNull();
+    }
+
+    @Test
+    void auditWriteFailureAfterASuccessfulProfileWriteSurfacesAsA502InsteadOfBeingSilentThroughTheFullStack() {
+        when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
+        Customer360ProfileDto updatedDto = new Customer360ProfileDto(
+                "0899999999", "123 Moo 4", "Soi 5", "Bang Rak", "Bang Rak", "Bangkok", "10500");
+        when(customer360Adapter.updateProfile(eq("cust-1"), any())).thenReturn(Mono.just(updatedDto));
+        when(customer360Adapter.appendAuditRecord(any())).thenReturn(Mono.error(new AuditWriteFailedException(
+                "cust-1", List.of("phone"), "agent-42", new RuntimeException("Customer360 audit endpoint down"))));
+        String currentVersion = readProfile("cust-1").version();
+
+        // The profile write above already reached Customer360 and succeeded (updateProfile
+        // was stubbed to return updatedDto) before the audit write fails - so a 200 here
+        // would mean the discrepancy (persisted change, no audit trail) went undetected.
+        webTestClient.patch().uri("/v1/customers/cust-1/profile")
+                .header(HttpHeaders.IF_MATCH, currentVersion)
+                .header("X-Actor-Id", "agent-42")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"phone\":\"0899999999\"}")
+                .exchange()
+                .expectStatus().isEqualTo(502)
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("SF011");
     }
 }

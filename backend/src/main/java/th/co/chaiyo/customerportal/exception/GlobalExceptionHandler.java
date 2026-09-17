@@ -34,6 +34,13 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(ex.getCode(), ex.getMessage(), ex.getDescription())));
     }
 
+    @ExceptionHandler(AuditWriteFailedException.class)
+    public Mono<ResponseEntity<ApiError>> handleAuditWriteFailed(AuditWriteFailedException ex) {
+        log.error("{}: {}", ex.getCode(), ex.getDescription(), ex.getCause());
+        return Mono.just(ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(new ApiError(ex.getCode(), ex.getMessage(), ex.getDescription())));
+    }
+
     @ExceptionHandler(ProfileVersionConflictException.class)
     public Mono<ResponseEntity<ApiError>> handleVersionConflict(ProfileVersionConflictException ex) {
         return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT)

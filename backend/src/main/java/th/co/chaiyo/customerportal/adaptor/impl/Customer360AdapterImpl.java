@@ -9,8 +9,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 import th.co.chaiyo.customerportal.adaptor.Customer360Adapter;
+import th.co.chaiyo.customerportal.adaptor.Customer360AuditRecordDto;
 import th.co.chaiyo.customerportal.adaptor.Customer360ProfileDto;
 import th.co.chaiyo.customerportal.adaptor.Customer360ProfileUpdateDto;
+import th.co.chaiyo.customerportal.exception.AuditWriteFailedException;
 import th.co.chaiyo.customerportal.exception.Customer360UnavailableException;
 import th.co.chaiyo.customerportal.exception.CustomerNotFoundException;
 
@@ -44,6 +46,19 @@ public class Customer360AdapterImpl implements Customer360Adapter {
                 .onErrorMap(ex -> !(ex instanceof CustomerNotFoundException)
                                 && !(ex instanceof Customer360UnavailableException),
                         ex -> new Customer360UnavailableException(customerId, ex));
+    }
+
+    @Override
+    public Mono<Void> appendAuditRecord(Customer360AuditRecordDto record) {
+        return customer360WebClient.post()
+                .uri("/customers/{id}/audit-entries", record.customerId())
+                .bodyValue(record)
+                .retrieve()
+                .toBodilessEntity()
+                .then()
+                .onErrorMap(ex -> !(ex instanceof AuditWriteFailedException),
+                        ex -> new AuditWriteFailedException(
+                                record.customerId(), record.changedFields(), record.actor(), ex));
     }
 
     private RuntimeException mapError(String customerId, WebClientResponseException ex) {
