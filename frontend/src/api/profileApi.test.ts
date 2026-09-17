@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchProfile, ProfileApiError, updateProfile } from './profileApi'
+import { fetchProfile, ProfileApiError, ProfileConflictError, updateProfile } from './profileApi'
 import type { CustomerProfile } from './types'
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -86,7 +86,7 @@ describe('updateProfile', () => {
     expect(result).toEqual(updated)
   })
 
-  it('throws a ProfileApiError when the service rejects the version as stale', async () => {
+  it('throws a ProfileApiError when the service rejects the version as stale with an error-shaped body', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(jsonResponse({ message: 'version conflict' }, 409)),
@@ -95,5 +95,36 @@ describe('updateProfile', () => {
     await expect(
       updateProfile('cust-1', 'stale-version', { phone: '0899999999' }),
     ).rejects.toMatchObject({ status: 409 })
+  })
+
+  it('throws a ProfileConflictError when the 409 body is the current profile', async () => {
+    const currentProfile = { ...sampleProfile, phone: '0899999999', version: 'v-current789' }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(currentProfile, 409)))
+
+    await expect(
+      updateProfile('cust-1', 'stale-version', { phone: '0888888888' }),
+    ).rejects.toBeInstanceOf(ProfileConflictError)
+  })
+
+  it('carries the current profile from the 409 body on the ProfileConflictError', async () => {
+    const currentProfile = { ...sampleProfile, phone: '0899999999', version: 'v-current789' }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(currentProfile, 409)))
+
+    const error = await updateProfile('cust-1', 'stale-version', { phone: '0888888888' }).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect((error as ProfileConflictError).currentProfile).toEqual(currentProfile)
+  })
+
+  it('uses the fixed R-15 conflict message on the ProfileConflictError', async () => {
+    const currentProfile = { ...sampleProfile, phone: '0899999999', version: 'v-current789' }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(currentProfile, 409)))
+
+    const error = await updateProfile('cust-1', 'stale-version', { phone: '0888888888' }).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect((error as Error).message).toBe('This profile changed while you were editing')
   })
 })

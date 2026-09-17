@@ -151,6 +151,40 @@ class CustomerProfileServiceImplTest {
     }
 
     @Test
+    void updateProfileConflictExceptionCarriesTheCurrentProfileFieldsFromCustomer360() {
+        service = new CustomerProfileServiceImpl(customer360Adapter);
+        when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
+        ProfileUpdateRequest request = new ProfileUpdateRequest("0899999999", null, null, null, null, null, null);
+
+        StepVerifier.create(service.updateProfile("cust-1", "stale-version", request))
+                .expectErrorSatisfies(error -> {
+                    ProfileResponse currentProfile =
+                            ((ProfileVersionConflictException) error).getCurrentProfile();
+                    assertThat(currentProfile.phone()).isEqualTo("0812345678");
+                    assertThat(currentProfile.addressLine1()).isEqualTo("123 Moo 4");
+                    assertThat(currentProfile.postalCode()).isEqualTo("10500");
+                })
+                .verify();
+    }
+
+    @Test
+    void updateProfileConflictExceptionCarriesTheCurrentVersionNotTheStaleIfMatchValue() {
+        service = new CustomerProfileServiceImpl(customer360Adapter);
+        when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
+        String actualCurrentVersion = service.getProfile("cust-1").block().version();
+        ProfileUpdateRequest request = new ProfileUpdateRequest("0899999999", null, null, null, null, null, null);
+
+        StepVerifier.create(service.updateProfile("cust-1", "stale-version", request))
+                .expectErrorSatisfies(error -> {
+                    String conflictVersion =
+                            ((ProfileVersionConflictException) error).getCurrentProfile().version();
+                    assertThat(conflictVersion).isEqualTo(actualCurrentVersion);
+                    assertThat(conflictVersion).isNotEqualTo("stale-version");
+                })
+                .verify();
+    }
+
+    @Test
     void updateProfileReturnsAllSevenFieldsAtTheirNewValuesOnSuccess() {
         service = new CustomerProfileServiceImpl(customer360Adapter);
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));

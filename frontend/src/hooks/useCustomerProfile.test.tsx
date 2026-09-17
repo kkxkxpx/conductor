@@ -89,4 +89,65 @@ describe('useCustomerProfile', () => {
     expect(result.current.loadError).toBeTruthy()
     expect(result.current.profile).toBeNull()
   })
+
+  it('sets conflict to the current profile from a 409 when a save is rejected', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(initialProfile)))
+    const { result } = renderHook(() => useCustomerProfile())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    const conflictProfile = { ...initialProfile, phone: '0899999999', version: 'v-current789' }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(conflictProfile, 409)))
+
+    await act(async () => {
+      await result.current.save({ phone: '0888888888' }).catch(() => undefined)
+    })
+
+    expect(result.current.conflict).toEqual(conflictProfile)
+  })
+
+  it('re-throws the conflict error from save so callers can react to it', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(initialProfile)))
+    const { result } = renderHook(() => useCustomerProfile())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    const conflictProfile = { ...initialProfile, phone: '0899999999', version: 'v-current789' }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(conflictProfile, 409)))
+
+    await expect(
+      act(async () => {
+        await result.current.save({ phone: '0888888888' })
+      }),
+    ).rejects.toThrow('This profile changed while you were editing')
+  })
+
+  it('reloadAfterConflict adopts the conflicting profile as the new baseline and clears the conflict', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(initialProfile)))
+    const { result } = renderHook(() => useCustomerProfile())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    const conflictProfile = { ...initialProfile, phone: '0899999999', version: 'v-current789' }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(conflictProfile, 409)))
+    await act(async () => {
+      await result.current.save({ phone: '0888888888' }).catch(() => undefined)
+    })
+
+    act(() => {
+      result.current.reloadAfterConflict()
+    })
+
+    expect(result.current.profile).toEqual(conflictProfile)
+    expect(result.current.conflict).toBeNull()
+  })
+
+  it('reloadAfterConflict leaves the loaded profile untouched when there is no unresolved conflict', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(initialProfile)))
+    const { result } = renderHook(() => useCustomerProfile())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    act(() => {
+      result.current.reloadAfterConflict()
+    })
+
+    expect(result.current.profile).toEqual(initialProfile)
+  })
 })

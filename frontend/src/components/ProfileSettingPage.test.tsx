@@ -137,4 +137,82 @@ describe('ProfileSettingPage', () => {
     const [, reloadInit] = reloadFetch.mock.calls[0] as [string, RequestInit | undefined]
     expect(reloadInit?.method ?? 'GET').toBe('GET')
   })
+
+  it('shows "This profile changed while you were editing" with a reload button when a save returns 409', async () => {
+    const conflictProfile = { ...initialProfile, phone: '0899999999', version: 'v-current789' }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(initialProfile))
+      .mockResolvedValueOnce(jsonResponse(conflictProfile, 409))
+    vi.stubGlobal('fetch', fetchMock)
+    const user = userEvent.setup()
+
+    render(<ProfileSettingPage />)
+    await waitFor(() => expect(screen.getByText('Profile Setting')).toBeInTheDocument())
+
+    const contactSection = within(screen.getByRole('region', { name: 'Contact' }))
+    await user.clear(contactSection.getByLabelText('Phone number'))
+    await user.type(contactSection.getByLabelText('Phone number'), '0888888888')
+    await user.click(contactSection.getByRole('button', { name: /save/i }))
+
+    const banner = await screen.findByRole('alert')
+    expect(banner).toHaveTextContent('This profile changed while you were editing')
+    expect(within(banner).getByRole('button', { name: /reload/i })).toBeInTheDocument()
+  })
+
+  it('clicking reload after a conflict dismisses the banner', async () => {
+    const conflictProfile = { ...initialProfile, phone: '0899999999', version: 'v-current789' }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(initialProfile))
+      .mockResolvedValueOnce(jsonResponse(conflictProfile, 409))
+    vi.stubGlobal('fetch', fetchMock)
+    const user = userEvent.setup()
+
+    render(<ProfileSettingPage />)
+    await waitFor(() => expect(screen.getByText('Profile Setting')).toBeInTheDocument())
+
+    const contactSection = within(screen.getByRole('region', { name: 'Contact' }))
+    await user.clear(contactSection.getByLabelText('Phone number'))
+    await user.type(contactSection.getByLabelText('Phone number'), '0888888888')
+    await user.click(contactSection.getByRole('button', { name: /save/i }))
+
+    const banner = await screen.findByRole('alert')
+    await user.click(within(banner).getByRole('button', { name: /reload/i }))
+
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+  })
+
+  it('adopts the conflicting profile as the If-Match baseline for the next save after reload', async () => {
+    const conflictProfile = { ...initialProfile, phone: '0899999999', version: 'v-current789' }
+    const afterRetrySave = { ...conflictProfile, addressLine1: '999 Moo 9', version: 'v-next' }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(initialProfile))
+      .mockResolvedValueOnce(jsonResponse(conflictProfile, 409))
+      .mockResolvedValueOnce(jsonResponse(afterRetrySave))
+    vi.stubGlobal('fetch', fetchMock)
+    const user = userEvent.setup()
+
+    render(<ProfileSettingPage />)
+    await waitFor(() => expect(screen.getByText('Profile Setting')).toBeInTheDocument())
+
+    const contactSection = within(screen.getByRole('region', { name: 'Contact' }))
+    await user.clear(contactSection.getByLabelText('Phone number'))
+    await user.type(contactSection.getByLabelText('Phone number'), '0888888888')
+    await user.click(contactSection.getByRole('button', { name: /save/i }))
+
+    const banner = await screen.findByRole('alert')
+    await user.click(within(banner).getByRole('button', { name: /reload/i }))
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+
+    const addressSection = within(screen.getByRole('region', { name: 'Address' }))
+    await user.clear(addressSection.getByLabelText('Address No.'))
+    await user.type(addressSection.getByLabelText('Address No.'), '999 Moo 9')
+    await user.click(addressSection.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+
+    const retryInit = fetchMock.mock.calls[2][1] as RequestInit
+    expect((retryInit.headers as Record<string, string>)['If-Match']).toBe('v-current789')
+  })
 })
