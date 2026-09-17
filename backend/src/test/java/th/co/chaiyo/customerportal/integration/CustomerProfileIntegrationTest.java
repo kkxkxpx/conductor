@@ -13,15 +13,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.web.server.LocalManagementPort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import reactor.core.publisher.Mono;
 import th.co.chaiyo.customerportal.adaptor.Customer360Adapter;
 import th.co.chaiyo.customerportal.adaptor.Customer360AuditRecordDto;
@@ -37,6 +41,7 @@ import th.co.chaiyo.customerportal.model.response.ProfileResponse;
  */
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
+@AutoConfigureObservability
 @TestPropertySource(properties = "cors.allowed-origin-patterns=https://portal.chaiyo.co.th")
 class CustomerProfileIntegrationTest {
 
@@ -53,9 +58,30 @@ class CustomerProfileIntegrationTest {
     @MockBean
     private Customer360Adapter customer360Adapter;
 
+    // Mirrors the package-private constants on ProfileWriteLatencyMetrics (different
+    // package, so not directly importable) - keep in sync with that class.
+    private static final String PATCH_TIMER_NAME = "customerportal.profile.patch";
+    private static final String CUSTOMER360_WRITE_TIMER_NAME = "customerportal.profile.patch.customer360.write";
+
+    @Autowired
+    private MeterRegistry meterRegistry;
+
+    @LocalManagementPort
+    private int managementPort;
+
     @BeforeEach
     void stubAuditWritesAsSuccessful() {
         lenient().when(customer360Adapter.appendAuditRecord(any())).thenReturn(Mono.empty());
+    }
+
+    private double patchTimerCount() {
+        Timer timer = meterRegistry.find(PATCH_TIMER_NAME).timer();
+        return timer == null ? 0 : timer.count();
+    }
+
+    private double customer360WriteTimerCount() {
+        Timer timer = meterRegistry.find(CUSTOMER360_WRITE_TIMER_NAME).timer();
+        return timer == null ? 0 : timer.count();
     }
 
     private Customer360ProfileDto sampleDto() {
@@ -291,5 +317,79 @@ class CustomerProfileIntegrationTest {
                 .expectStatus().isEqualTo(502)
                 .expectBody()
                 .jsonPath("$.code").isEqualTo("SF011");
+    }
+
+    @Test
+    void successfulPatchRecordsOneSampleOnTheRealPatchTimerAndOneOnTheRealCustomer360WriteTimer() {
+        when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
+        Customer360ProfileDto updatedDto = new Customer360ProfileDto(
+                "0899999999", "123 Moo 4", "Soi 5", "Bang Rak", "Bang Rak", "Bangkok", "10500");
+        when(customer360Adapter.updateProfile(eq("cust-1"), any())).thenReturn(Mono.just(updatedDto));
+        String currentVersion = readProfile("cust-1").version();
+        double patchCountBefore = patchTimerCount();
+        double customer360WriteCountBefore = customer360WriteTimerCount();
+
+        webTestClient.patch().uri("/v1/customers/cust-1/profile")
+                .header(HttpHeaders.IF_MATCH, currentVersion)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"phone\":\"0899999999\"}")
+                .exchange()
+                .expectStatus().isOk();
+
+        // These are two distinct meters populated by the real MeterRegistry bean, wired
+        // through the actual controller -> service -> adapter path (only Customer360Adapter
+        // is stubbed) - proving the total-PATCH and Customer360-write-share metrics required
+        // by R-10/NFR-1 are genuinely separate numbers, not the same sample counted twice.
+        assertThat(patchTimerCount()).isEqualTo(patchCountBefore + 1);
+        assertThat(customer360WriteTimerCount()).isEqualTo(customer360WriteCountBefore + 1);
+    }
+
+    @Test
+    void patchRejectedForAVersionConflictStillRecordsTotalPatchLatencyButNoCustomer360WriteSample() {
+        when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
+        double patchCountBefore = patchTimerCount();
+        double customer360WriteCountBefore = customer360WriteTimerCount();
+
+        // A stale If-Match is rejected before Customer360 is ever called - the server-side
+        // PATCH latency (R-10) must still be sampled for this request, since a p95 computed
+        // only over the requests that happen to succeed would understate real latency.
+        webTestClient.patch().uri("/v1/customers/cust-1/profile")
+                .header(HttpHeaders.IF_MATCH, "stale-version")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"phone\":\"0899999999\"}")
+                .exchange()
+                .expectStatus().isEqualTo(409);
+
+        assertThat(patchTimerCount()).isEqualTo(patchCountBefore + 1);
+        assertThat(customer360WriteTimerCount()).isEqualTo(customer360WriteCountBefore);
+    }
+
+    @Test
+    void patchLatencyMetricsAreScrapableFromTheActuatorPrometheusEndpointAfterAPatch() {
+        when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
+        Customer360ProfileDto updatedDto = new Customer360ProfileDto(
+                "0899999999", "123 Moo 4", "Soi 5", "Bang Rak", "Bang Rak", "Bangkok", "10500");
+        when(customer360Adapter.updateProfile(eq("cust-1"), any())).thenReturn(Mono.just(updatedDto));
+        String currentVersion = readProfile("cust-1").version();
+
+        webTestClient.patch().uri("/v1/customers/cust-1/profile")
+                .header(HttpHeaders.IF_MATCH, currentVersion)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"phone\":\"0899999999\"}")
+                .exchange()
+                .expectStatus().isOk();
+
+        // Exercises the actual management port and the micrometer-registry-prometheus
+        // dependency this subtask added - a mocked MeterRegistry would never catch either
+        // of those being missing or misconfigured.
+        WebTestClient.bindToServer().baseUrl("http://localhost:" + managementPort).build()
+                .get().uri("/actuator/prometheus")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .value(body -> {
+                    assertThat(body).contains("customerportal_profile_patch_seconds_count");
+                    assertThat(body).contains("customerportal_profile_patch_customer360_write_seconds_count");
+                });
     }
 }
