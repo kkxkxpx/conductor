@@ -2,9 +2,11 @@ package th.co.chaiyo.customerportal.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
@@ -17,6 +19,7 @@ import th.co.chaiyo.customerportal.exception.AuditWriteFailedException;
 import th.co.chaiyo.customerportal.exception.Customer360UnavailableException;
 import th.co.chaiyo.customerportal.exception.CustomerNotFoundException;
 import th.co.chaiyo.customerportal.exception.ProfileVersionConflictException;
+import th.co.chaiyo.customerportal.metrics.ProfileWriteLatencyMetrics;
 import th.co.chaiyo.customerportal.model.request.ProfileUpdateRequest;
 import th.co.chaiyo.customerportal.model.response.ProfileResponse;
 import th.co.chaiyo.customerportal.service.CustomerProfileService;
@@ -29,6 +32,14 @@ class CustomerProfileControllerTest {
 
     @MockBean
     private CustomerProfileService customerProfileService;
+
+    @MockBean
+    private ProfileWriteLatencyMetrics profileWriteLatencyMetrics;
+
+    @BeforeEach
+    void passLatencyMetricsThrough() {
+        lenient().when(profileWriteLatencyMetrics.timePatch(any())).thenAnswer(invocation -> invocation.getArgument(0));
+    }
 
     @Test
     void getProfileReturns200WithAllProfileFieldsAndVersion() {

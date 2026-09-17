@@ -18,6 +18,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import th.co.chaiyo.customerportal.adaptor.Customer360Adapter;
@@ -27,6 +28,7 @@ import th.co.chaiyo.customerportal.adaptor.Customer360ProfileUpdateDto;
 import th.co.chaiyo.customerportal.exception.AuditWriteFailedException;
 import th.co.chaiyo.customerportal.exception.CustomerNotFoundException;
 import th.co.chaiyo.customerportal.exception.ProfileVersionConflictException;
+import th.co.chaiyo.customerportal.metrics.ProfileWriteLatencyMetrics;
 import th.co.chaiyo.customerportal.model.request.ProfileUpdateRequest;
 import th.co.chaiyo.customerportal.model.response.ProfileResponse;
 import th.co.chaiyo.customerportal.validation.ProfileUpdateValidator;
@@ -38,12 +40,15 @@ class CustomerProfileServiceImplTest {
     private Customer360Adapter customer360Adapter;
 
     private final Clock clock = Clock.fixed(Instant.parse("2026-09-17T10:00:00Z"), ZoneOffset.UTC);
+    private final ProfileWriteLatencyMetrics profileWriteLatencyMetrics =
+            new ProfileWriteLatencyMetrics(new SimpleMeterRegistry());
 
     private CustomerProfileServiceImpl service;
 
     private CustomerProfileServiceImpl newService() {
         lenient().when(customer360Adapter.appendAuditRecord(any())).thenReturn(Mono.empty());
-        return new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator(), clock);
+        return new CustomerProfileServiceImpl(
+                customer360Adapter, new ProfileUpdateValidator(), clock, profileWriteLatencyMetrics);
     }
 
     private Customer360ProfileDto sampleDto() {
@@ -207,7 +212,8 @@ class CustomerProfileServiceImplTest {
 
     @Test
     void updateProfileSurfacesAnErrorWhenTheAuditWriteFailsAfterTheProfileWriteSucceeded() {
-        service = new CustomerProfileServiceImpl(customer360Adapter, new ProfileUpdateValidator(), clock);
+        service = new CustomerProfileServiceImpl(
+                customer360Adapter, new ProfileUpdateValidator(), clock, profileWriteLatencyMetrics);
         when(customer360Adapter.fetchProfile("cust-1")).thenReturn(Mono.just(sampleDto()));
         String currentVersion = service.getProfile("cust-1").block().version();
         when(customer360Adapter.updateProfile(eq("cust-1"), any())).thenReturn(Mono.just(sampleDto()));
