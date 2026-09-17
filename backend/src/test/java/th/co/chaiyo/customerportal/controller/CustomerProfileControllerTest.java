@@ -13,6 +13,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 import reactor.core.publisher.Mono;
+import th.co.chaiyo.customerportal.exception.AuditWriteFailedException;
 import th.co.chaiyo.customerportal.exception.Customer360UnavailableException;
 import th.co.chaiyo.customerportal.exception.CustomerNotFoundException;
 import th.co.chaiyo.customerportal.exception.ProfileVersionConflictException;
@@ -156,6 +157,22 @@ class CustomerProfileControllerTest {
                 .expectStatus().isEqualTo(409)
                 .expectBody()
                 .jsonPath("$.code").isEqualTo("CF001");
+    }
+
+    @Test
+    void updateProfileReturns502WhenTheAuditWriteFailsAfterTheProfileWriteSucceeded() {
+        when(customerProfileService.updateProfile(eq("cust-1"), eq("v-abc123"), any(ProfileUpdateRequest.class), any()))
+                .thenReturn(Mono.error(new AuditWriteFailedException(
+                        "cust-1", java.util.List.of("phone"), "agent-1", new RuntimeException("boom"))));
+
+        webTestClient.patch().uri("/v1/customers/cust-1/profile")
+                .header("If-Match", "v-abc123")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"phone\":\"0899999999\"}")
+                .exchange()
+                .expectStatus().isEqualTo(502)
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("SF011");
     }
 
     @Test
