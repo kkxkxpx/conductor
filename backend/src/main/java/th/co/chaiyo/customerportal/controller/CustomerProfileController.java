@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import lombok.RequiredArgsConstructor;
 import reactor.core.publisher.Mono;
+import th.co.chaiyo.customerportal.metrics.ProfileWriteLatencyMetrics;
 import th.co.chaiyo.customerportal.model.request.ProfileUpdateRequest;
 import th.co.chaiyo.customerportal.model.response.ProfileResponse;
 import th.co.chaiyo.customerportal.service.CustomerProfileService;
@@ -21,6 +22,7 @@ import th.co.chaiyo.customerportal.service.CustomerProfileService;
 public class CustomerProfileController {
 
     private final CustomerProfileService customerProfileService;
+    private final ProfileWriteLatencyMetrics profileWriteLatencyMetrics;
 
     @GetMapping("/{id}/profile")
     public Mono<ResponseEntity<ProfileResponse>> getProfile(@PathVariable("id") String id) {
@@ -34,7 +36,8 @@ public class CustomerProfileController {
             @RequestHeader("If-Match") String ifMatch,
             @RequestHeader(value = "X-Actor-Id", required = false, defaultValue = "unknown") String actor,
             @RequestBody ProfileUpdateRequest request) {
-        return customerProfileService.updateProfile(id, ifMatch, request, actor)
+        return profileWriteLatencyMetrics.timePatch(
+                        customerProfileService.updateProfile(id, ifMatch, request, actor))
                 .map(ResponseEntity::ok);
     }
 }

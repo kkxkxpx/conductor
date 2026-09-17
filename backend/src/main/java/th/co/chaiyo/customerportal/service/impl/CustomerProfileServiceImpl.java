@@ -18,6 +18,7 @@ import th.co.chaiyo.customerportal.adaptor.Customer360ProfileDto;
 import th.co.chaiyo.customerportal.adaptor.Customer360ProfileUpdateDto;
 import th.co.chaiyo.customerportal.exception.ProfileValidationException;
 import th.co.chaiyo.customerportal.exception.ProfileVersionConflictException;
+import th.co.chaiyo.customerportal.metrics.ProfileWriteLatencyMetrics;
 import th.co.chaiyo.customerportal.model.request.ProfileUpdateRequest;
 import th.co.chaiyo.customerportal.model.response.FieldValidationError;
 import th.co.chaiyo.customerportal.model.response.ProfileResponse;
@@ -39,6 +40,7 @@ public class CustomerProfileServiceImpl implements CustomerProfileService {
     private final Customer360Adapter customer360Adapter;
     private final ProfileUpdateValidator profileUpdateValidator;
     private final Clock clock;
+    private final ProfileWriteLatencyMetrics profileWriteLatencyMetrics;
 
     @Override
     public Mono<ProfileResponse> getProfile(String customerId) {
@@ -59,7 +61,8 @@ public class CustomerProfileServiceImpl implements CustomerProfileService {
                     if (!computeVersion(current).equals(ifMatch)) {
                         return Mono.error(new ProfileVersionConflictException(customerId));
                     }
-                    return customer360Adapter.updateProfile(customerId, toUpdateDto(request))
+                    return profileWriteLatencyMetrics.timeCustomer360Write(
+                                    customer360Adapter.updateProfile(customerId, toUpdateDto(request)))
                             .flatMap(updated -> appendAuditRecord(customerId, changedFields, actor)
                                     .thenReturn(updated));
                 })
